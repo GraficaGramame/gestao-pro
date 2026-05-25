@@ -1,9 +1,9 @@
 /**
  * src/app/login/page.tsx
- * Página de Autenticação - Acesso ao Gestão Pro (Versão Blindada)
+ * Página de Autenticação - Acesso ao Gestão Pro (Desfibrilador Ativo)
  */
 'use client';
-// Atualização de identidade
+
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 
@@ -19,30 +19,39 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // Trava de segurança: Verifica se o Vercel injetou as chaves corretamente
+      // 1. Checagem Bruta de Variáveis de Ambiente
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-        throw new Error("Chave do banco ausente. Verifique o painel do Vercel.");
+        throw new Error("ERRO FATAL: O Vercel não encontrou a variável NEXT_PUBLIC_SUPABASE_URL.");
       }
 
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
+      // 2. O Desfibrilador (Timeout de 8 segundos)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("TIMEOUT: O servidor do Supabase não respondeu. Verifique se a URL no Vercel está exata e sem espaços.")), 8000)
+      );
+
+      const authPromise = supabase.auth.signInWithPassword({
         email,
         password,
       });
 
+      // 3. A Corrida (O primeiro a terminar, vence)
+      const response: any = await Promise.race([authPromise, timeoutPromise]);
+      const { data, error: authError } = response;
+
       if (authError) {
-        // Exibe exatamente o que o banco respondeu (ex: "Senha incorreta")
-        setError(`Acesso negado: ${authError.message}`);
+        setError(`ACESSO NEGADO: ${authError.message}`);
         setLoading(false);
       } else if (data?.session) {
-        // Força a navegação bruta para limpar o cache de rotas do Next.js
+        // Redirecionamento forçado ignorando o cache do Next.js
+        alert("Sucesso absoluto! Conexão estabelecida com o banco.");
         window.location.href = '/';
       } else {
-        setError('Falha de resposta do servidor.');
+        setError('ERRO ESTRANHO: A resposta do servidor veio completamente vazia.');
         setLoading(false);
       }
     } catch (err: any) {
-      // Captura erros silenciosos e vomita na tela
-      setError(`Erro Crítico do Sistema: ${err?.message || 'Falha de conexão'}`);
+      // Captura e exibe qualquer erro que estava oculto
+      setError(`DIAGNÓSTICO DA NUVEM: ${err?.message || 'Falha de comunicação de rede'}`);
       setLoading(false);
     }
   };
@@ -57,7 +66,7 @@ export default function LoginPage() {
 
         <form onSubmit={handleLogin} className="space-y-6">
           {error && (
-            <div className="bg-red-500/10 border border-red-500 text-red-400 text-[10px] font-bold uppercase p-4 rounded-xl text-center shadow-lg">
+            <div className="bg-red-500/10 border-2 border-red-500 text-red-400 text-xs font-black uppercase p-5 rounded-xl text-center shadow-lg animate-pulse">
               {error}
             </div>
           )}
@@ -93,7 +102,7 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full bg-green-600 hover:bg-green-500 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-green-900/20 transition-all disabled:opacity-50"
           >
-            {loading ? 'Autenticando...' : 'Entrar no Sistema'}
+            {loading ? 'ANALISANDO REDE...' : 'Entrar no Sistema'}
           </button>
         </form>
 

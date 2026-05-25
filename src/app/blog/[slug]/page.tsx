@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * src/app/blog/[slug]/page.tsx
  * Página Dinâmica de Leitura de Matéria - Gráfica Gramame

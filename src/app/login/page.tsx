@@ -3,7 +3,7 @@
  * Página de Autenticação - Acesso ao Gestão Pro (Versão Blindada)
  */
 'use client';
-
+// Atualização de identidade
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 

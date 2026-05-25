@@ -1,36 +1,49 @@
 /**
  * src/app/login/page.tsx
- * Página de Autenticação - Acesso ao Gestão Pro.
+ * Página de Autenticação - Acesso ao Gestão Pro (Versão Blindada)
  */
 'use client';
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      // Trava de segurança: Verifica se o Vercel injetou as chaves corretamente
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+        throw new Error("Chave do banco ausente. Verifique o painel do Vercel.");
+      }
 
-    if (authError) {
-      setError('Credenciais inválidas ou usuário não encontrado.');
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (authError) {
+        // Exibe exatamente o que o banco respondeu (ex: "Senha incorreta")
+        setError(`Acesso negado: ${authError.message}`);
+        setLoading(false);
+      } else if (data?.session) {
+        // Força a navegação bruta para limpar o cache de rotas do Next.js
+        window.location.href = '/';
+      } else {
+        setError('Falha de resposta do servidor.');
+        setLoading(false);
+      }
+    } catch (err: any) {
+      // Captura erros silenciosos e vomita na tela
+      setError(`Erro Crítico do Sistema: ${err?.message || 'Falha de conexão'}`);
       setLoading(false);
-    } else {
-      // Login bem-sucedido, redireciona para a home
-      router.push('/');
     }
   };
 
@@ -44,7 +57,7 @@ export default function LoginPage() {
 
         <form onSubmit={handleLogin} className="space-y-6">
           {error && (
-            <div className="bg-red-500/10 border border-red-500 text-red-500 text-[10px] font-bold uppercase p-3 rounded-xl text-center">
+            <div className="bg-red-500/10 border border-red-500 text-red-400 text-[10px] font-bold uppercase p-4 rounded-xl text-center shadow-lg">
               {error}
             </div>
           )}

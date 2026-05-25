@@ -1,17 +1,19 @@
 /**
  * src/app/login/page.tsx
- * Página de Autenticação - Acesso ao Gestão Pro (Versão de Produção)
+ * Página de Autenticação - Acesso ao Gestão Pro
  */
 'use client';
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
+import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,10 +21,6 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-        throw new Error("Erro de infraestrutura: Variáveis não encontradas.");
-      }
-
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -32,8 +30,8 @@ export default function LoginPage() {
         setError(`Acesso negado: Credenciais inválidas.`);
         setLoading(false);
       } else if (data?.session) {
-        // Redirecionamento silencioso direto para a área do sistema
-        window.location.href = '/painel';
+        // O Roteador do Next.js faz a transição suave sem matar o processo do Supabase
+        router.push('/painel');
       } else {
         setError('Falha de resposta do servidor.');
         setLoading(false);

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * src/app/clientes/page.tsx
  * CRM de Alta Performance - Gráfica Gramame

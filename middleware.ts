@@ -1,6 +1,6 @@
 /**
  * src/middleware.ts
- * Proteção de rotas e renovação de sessão Supabase (SSR).
+ * Proteção cirúrgica de rotas e leitura de Cookies do Supabase.
  */
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
@@ -23,18 +23,14 @@ export async function middleware(request: NextRequest) {
         set(name: string, value: string, options: CookieOptions) {
           request.cookies.set({ name, value, ...options });
           response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
+            request: { headers: request.headers },
           });
           response.cookies.set({ name, value, ...options });
         },
         remove(name: string, options: CookieOptions) {
           request.cookies.set({ name, value: '', ...options });
           response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
+            request: { headers: request.headers },
           });
           response.cookies.set({ name, value: '', ...options });
         },
@@ -44,14 +40,17 @@ export async function middleware(request: NextRequest) {
 
   const { data: { session } } = await supabase.auth.getSession();
 
-  // Redirecionamento para login se não houver sessão ativa
-  if (!session && !request.nextUrl.pathname.startsWith('/login')) {
+  const isPainelRoute = request.nextUrl.pathname.startsWith('/painel');
+  const isLoginRoute = request.nextUrl.pathname.startsWith('/login');
+
+  // 1. O Bouncer: Se tentar entrar no /painel sem crachá, joga pro /login
+  if (isPainelRoute && !session) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Redirecionamento para o dashboard se já estiver logado
-  if (session && request.nextUrl.pathname.startsWith('/login')) {
-    return NextResponse.redirect(new URL('/', request.url));
+  // 2. O Atalho: Se já estiver com o crachá e abrir a tela de /login, joga direto pro /painel
+  if (isLoginRoute && session) {
+    return NextResponse.redirect(new URL('/painel', request.url));
   }
 
   return response;
@@ -59,6 +58,9 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    /*
+     * Ignora arquivos estáticos e imagens para não sobrecarregar o servidor
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

@@ -3,7 +3,7 @@
  * CMS de Alta Performance e Motor de SEO - Gráfica Gramame
  */
 'use client';
-
+//teste
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/components/auth/auth-provider';

@@ -36,6 +36,9 @@ export default function BlogAdminPage() {
   }, [tenantId, activeTab]);
 
   const fetchData = async () => {
+    // Trava de segurança para o TypeScript: Aborta a função se não houver utilizador
+    if (!tenantId) return;
+
     setLoading(true);
     if (activeTab === 'POSTS') {
       const { data } = await supabase
@@ -55,22 +58,25 @@ export default function BlogAdminPage() {
     setLoading(false);
   };
 
-  // Gerador de Slug (Transforma "Como Fazer Adesivo!" em "como-fazer-adesivo")
+  // Gerador de Slug
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = e.target.value;
     setTitle(newTitle);
-    if (!postId) { // Só gera slug automático se for um post novo
+    if (!postId) {
       const autoSlug = newTitle
         .toLowerCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Remove acentos
-        .replace(/[^a-z0-9]+/g, '-') // Troca espaços e símbolos por hifens
-        .replace(/(^-|-$)+/g, ''); // Remove hifens nas pontas
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)+/g, '');
       setSlug(autoSlug);
     }
   };
 
   const handleSavePost = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Travas de segurança para garantir tipos corretos
+    if (!tenantId) return alert("Erro de autenticação: Utilizador não identificado.");
     if (!title || !slug || !content) return alert("Título, Slug e Conteúdo são obrigatórios.");
 
     const payload = {
@@ -114,7 +120,9 @@ export default function BlogAdminPage() {
   };
 
   const deletePost = async (id: string) => {
+    if (!tenantId) return; // Trava de segurança adicional
     if (!confirm("Tem a certeza que deseja apagar esta matéria? Tudo será perdido.")) return;
+    
     await supabase.from('posts').delete().eq('id', id).eq('tenant_id', tenantId);
     fetchData();
   };

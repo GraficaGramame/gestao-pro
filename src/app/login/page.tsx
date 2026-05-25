@@ -1,6 +1,6 @@
 /**
  * src/app/login/page.tsx
- * Página de Autenticação - Acesso ao Gestão Pro (Desfibrilador Ativo)
+ * Página de Autenticação - Acesso ao Gestão Pro (Versão de Produção)
  */
 'use client';
 
@@ -19,39 +19,27 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // 1. Checagem Bruta de Variáveis de Ambiente
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-        throw new Error("ERRO FATAL: O Vercel não encontrou a variável NEXT_PUBLIC_SUPABASE_URL.");
+        throw new Error("Erro de infraestrutura: Variáveis não encontradas.");
       }
 
-      // 2. O Desfibrilador (Timeout de 8 segundos)
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("TIMEOUT: O servidor do Supabase não respondeu. Verifique se a URL no Vercel está exata e sem espaços.")), 8000)
-      );
-
-      const authPromise = supabase.auth.signInWithPassword({
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      // 3. A Corrida (O primeiro a terminar, vence)
-      const response: any = await Promise.race([authPromise, timeoutPromise]);
-      const { data, error: authError } = response;
-
       if (authError) {
-        setError(`ACESSO NEGADO: ${authError.message}`);
+        setError(`Acesso negado: Credenciais inválidas.`);
         setLoading(false);
       } else if (data?.session) {
-        // Redirecionamento forçado ignorando o cache do Next.js
-        alert("Sucesso absoluto! Conexão estabelecida com o banco.");
-        window.location.href = '/';
+        // Redirecionamento silencioso direto para a área do sistema
+        window.location.href = '/painel';
       } else {
-        setError('ERRO ESTRANHO: A resposta do servidor veio completamente vazia.');
+        setError('Falha de resposta do servidor.');
         setLoading(false);
       }
     } catch (err: any) {
-      // Captura e exibe qualquer erro que estava oculto
-      setError(`DIAGNÓSTICO DA NUVEM: ${err?.message || 'Falha de comunicação de rede'}`);
+      setError(`Erro de conexão: ${err?.message || 'Falha de rede'}`);
       setLoading(false);
     }
   };
@@ -66,7 +54,7 @@ export default function LoginPage() {
 
         <form onSubmit={handleLogin} className="space-y-6">
           {error && (
-            <div className="bg-red-500/10 border-2 border-red-500 text-red-400 text-xs font-black uppercase p-5 rounded-xl text-center shadow-lg animate-pulse">
+            <div className="bg-red-500/10 border border-red-500 text-red-400 text-xs font-black uppercase p-4 rounded-xl text-center shadow-lg">
               {error}
             </div>
           )}
@@ -102,7 +90,7 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full bg-green-600 hover:bg-green-500 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-green-900/20 transition-all disabled:opacity-50"
           >
-            {loading ? 'ANALISANDO REDE...' : 'Entrar no Sistema'}
+            {loading ? 'AUTENTICANDO...' : 'Entrar no Sistema'}
           </button>
         </form>
 

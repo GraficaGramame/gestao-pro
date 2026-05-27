@@ -1,6 +1,6 @@
 /**
  * src/app/layout.tsx
- * Layout principal com injeção do AuthProvider, AppShell e Google Analytics.
+ * Layout principal com injeção do AuthProvider, AppShell, Google Analytics e Google Ads.
  */
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
@@ -25,23 +25,28 @@ export default function RootLayout({
     <html lang="pt-br" className="scroll-smooth">
       <head>
         {/* ==========================================
-            GOOGLE ANALYTICS (GA4)
+            GOOGLE ANALYTICS (GA4) & GOOGLE ADS
             ========================================== */}
         <Script
           strategy="afterInteractive"
           src={`https://www.googletagmanager.com/gtag/js?id=G-5D4ZHH0H4T`}
         />
         <Script
-          id="google-analytics"
+          id="google-tags"
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
               window.dataLayer = window.dataLayer || [];
               function gtag(){dataLayer.push(arguments);}
               gtag('js', new Date());
+              
+              /* 1. Google Analytics (Já estava correto) */
               gtag('config', 'G-5D4ZHH0H4T', {
                 page_path: window.location.pathname,
               });
+
+              /* 2. Google Ads (COLOQUE O SEU ID AW- ABAIXO) */
+              gtag('config', 'AW-18036800440');
             `,
           }}
         />

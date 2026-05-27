@@ -1,7 +1,6 @@
 /**
  * src/components/auth/auth-provider.tsx
- * Provedor de contexto para gerenciar a sessão e o tenant_id global.
- * Versão blindada contra erros de 'implicit any'.
+ * Provedor de contexto para gerenciar a sessão e o logoff.
  */
 'use client';
 
@@ -13,12 +12,14 @@ interface AuthContextType {
   user: User | null;
   tenantId: string | null;
   loading: boolean;
+  signOut: () => Promise<void>; // Adicionado a função de logoff
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   tenantId: null,
   loading: true,
+  signOut: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -26,15 +27,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Função de logoff para ser usada em qualquer parte do sistema
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setTenantId(null);
+    window.location.href = '/login'; // Força o redirecionamento
+  };
+
   useEffect(() => {
-    // 1. Pega a sessão inicial definindo o tipo do retorno explicitamente
     supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
       setUser(session?.user ?? null);
       setTenantId(session?.user?.id ?? null);
       setLoading(false);
     });
 
-    // 2. Escuta mudanças na autenticação com tipos definidos para _event e session
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       setUser(session?.user ?? null);
       setTenantId(session?.user?.id ?? null);
@@ -45,8 +52,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, tenantId, loading }}>
-      {!loading && children}
+    <AuthContext.Provider value={{ user, tenantId, loading, signOut }}>
+      {children}
     </AuthContext.Provider>
   );
 };

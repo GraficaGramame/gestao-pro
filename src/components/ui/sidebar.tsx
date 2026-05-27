@@ -1,8 +1,11 @@
 'use client';
 
 import Link from 'next/link';
+import { useAuth } from '@/components/auth/auth-provider';
 
 export default function Sidebar() {
+  const { signOut } = useAuth();
+  
   const menuItems = [
     { name: 'Painel Geral', icon: '📊', path: '/painel' },
     { name: 'Novo Pedido', icon: '🛒', path: '/vendas' },
@@ -10,7 +13,7 @@ export default function Sidebar() {
     { name: 'Produção', icon: '🏭', path: '/producao' },
     { name: 'Pedidos', icon: '📋', path: '/pedidos' },
     { name: 'Marketing', icon: '🎯', path: '/marketing' },
-    { name: 'Blog & SEO', icon: '✍️', path: '/blog-admin' }, // O NOVO MOTOR DE AUDIÊNCIA
+    { name: 'Blog & SEO', icon: '✍️', path: '/blog-admin' },
     { name: 'Financeiro', icon: '💰', path: '/financeiro' },
     { name: 'Custos Fixos', icon: '📉', path: '/custos' },
     { name: 'Relatórios', icon: '📈', path: '/relatorios' },
@@ -23,6 +26,7 @@ export default function Sidebar() {
       <div className="p-8">
         <h2 className="text-xl font-black text-green-500 tracking-tighter uppercase">Gramame Pro</h2>
       </div>
+      
       <nav className="flex-1 px-4 space-y-1 mt-4 overflow-y-auto custom-scrollbar">
         {menuItems.map((item) => (
           <Link 
@@ -35,7 +39,8 @@ export default function Sidebar() {
           </Link>
         ))}
       </nav>
-      <div className="p-6 border-t border-slate-800 bg-slate-900/50">
+
+      <div className="p-6 border-t border-slate-800 bg-slate-900/50 flex flex-col gap-4">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-2xl bg-green-600 flex items-center justify-center font-black text-slate-950">F</div>
           <div className="text-[10px]">
@@ -43,6 +48,13 @@ export default function Sidebar() {
             <p className="text-slate-500 font-bold uppercase tracking-widest opacity-70">Gramame PB</p>
           </div>
         </div>
+        
+        <button 
+          onClick={signOut}
+          className="w-full py-3 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 font-black rounded-xl text-[10px] uppercase tracking-widest transition-all"
+        >
+          Sair do Sistema
+        </button>
       </div>
     </aside>
   );

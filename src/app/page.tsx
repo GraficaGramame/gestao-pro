@@ -30,21 +30,23 @@ export default function HomeSite() {
         return;
       }
 
+      // Tipagem explícita para o TypeScript saber que existe um 'id'
       const { data: customerData, error: customerError } = await supabase
         .from('customers')
         .select('id')
         .like('whatsapp', `%${cleanPhone}%`)
         .limit(1)
-        .single();
+        .single() as { data: { id: string } | null, error: any };
 
       if (customerData?.id) {
+        // Tipagem explícita para o pedido
         const { data: orderData, error: orderError } = await supabase
           .from('orders')
           .select('id')
           .eq('customer_id', customerData.id)
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .single() as { data: { id: string } | null, error: any };
 
         if (orderData?.id) {
           router.push(`/rastreio/${orderData.id}`);
@@ -66,7 +68,7 @@ export default function HomeSite() {
     { titulo: "Adesivos em Vinil", descricao: "Impressão de alta resolução e recorte eletrônico. Ideal para rótulos e vitrines.", img: "/assets/img-adesivos.webp", msgZap: "Orçamento de Adesivos" },
     { titulo: "Cartões de Visita", descricao: "O primeiro contato importa. Opções em couchê, fosco e verniz para máxima credibilidade.", img: "/assets/img-cartoes.webp", msgZap: "Orçamento de Cartões" },
     { titulo: "Panfletos e Flyers", descricao: "Impressão em massa com velocidade. O material perfeito para ações de marketing local.", img: "/assets/img-panfletos.png", msgZap: "Orçamento de Panfletos" },
-    { titulo: "Camisas e Uniformes", descricao: "Uniformes e camisas promocionais com impressão DTF, serigrafia e sublimação de última geração.", img: "/assets/img-camisas.webp", msgZap: "Orçamento de Camisas e DTF" },
+    { titulo: "Camisas e Uniformes", descricao: "Uniformes e camisas promocionais com impressão DTF, serigrafia e sublimação de última geração.", img: "/assets/img-camisas.png", msgZap: "Orçamento de Camisas e DTF" },
     { titulo: "Banners e Lonas", descricao: "Comunicação visual de impacto para fachadas. Acabamento impecável com ilhós e madeira.", img: "/assets/img-banners.png", msgZap: "Orçamento de Banners" },
     { titulo: "Canecas e Brindes", descricao: "Canecas de porcelana e brindes corporativos via sublimação com cores fiéis à sua marca.", img: "/assets/img-canecas.webp", msgZap: "Orçamento de Canecas e Brindes" }
   ];
@@ -107,7 +109,6 @@ export default function HomeSite() {
           <div className="flex justify-between items-center h-full">
             <div className="flex-shrink-0 hover:opacity-80 transition-opacity cursor-pointer">
               <Link href="/">
-                {/* Filtro invert para tornar o logo branco no fundo escuro */}
                 <img src="/assets/logo.png" alt="Gráfica Gramame" className="h-10 w-auto brightness-0 invert" />
               </Link>
             </div>
@@ -193,7 +194,6 @@ export default function HomeSite() {
             <h1 className="text-5xl sm:text-6xl md:text-8xl font-black text-white tracking-tighter mb-6 leading-[1.05] max-w-5xl">
               Imprima sua marca com <br className="hidden sm:block" />
               <span className="relative inline-block mt-2">
-                {/* Gradiente Textual: Cyan -> Magenta -> Lime */}
                 <span className="bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-fuchsia-500 to-lime-400">Impacto e Agilidade</span>
               </span>
             </h1>
@@ -325,7 +325,6 @@ export default function HomeSite() {
               
               <div className="flex-1 w-full">
                 <div className="bg-slate-900 p-4 rounded-[2.5rem] shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-slate-800 h-[500px]">
-                  {/* Hack de CSS (invert/grayscale) para deixar o mapa do Google escuro combinando com o tema */}
                   <iframe 
                     src="https://maps.google.com/maps?q=Rua%20do%20Arco,%20872%20-%20Colinas%20do%20Sul,%20Jo%C3%A3o%20Pessoa%20-%20PB&t=&z=15&ie=UTF8&iwloc=&output=embed" 
                     width="100%" 

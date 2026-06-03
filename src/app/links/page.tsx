@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 
 export default function InstagramLinks() {
-  const whatsappNumber = "5583988474211";
+  const whatsappNumber = "5583998474211";
 
   // Ícones e cores para os produtos (Fuchsia Neon)
   const linksProdutos = [

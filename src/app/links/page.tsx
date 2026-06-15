@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 
 export default function InstagramLinks() {
-  const whatsappNumber = "5583988474211";
+  const whatsappNumber = "5583998474211";
 
   // Grid de Produtos 100% Horizontal (Sem divisões no meio)
   const linksProdutos = [

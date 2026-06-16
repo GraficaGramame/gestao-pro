@@ -14,12 +14,6 @@ export default function OrcamentoWizard() {
 
   // Constrói o array de passos baseado na configuração
   const flow = ['contact', 'product', 'quantity'];
-  
-  // INJETA O MÓDULO DE ARTE SE ESTIVER ATIVO
-  if (wizardConfig?.has_art_module) {
-    flow.push('art_module');
-  }
-
   if (wizardConfig?.steps) {
     wizardConfig.steps.forEach(s => flow.push(`dynamic_${s.id}`));
   }
@@ -87,8 +81,7 @@ export default function OrcamentoWizard() {
                 onClick={() => {
                   updateData('produto_id', produto.id);
                   updateData('produto_nome', produto.nome);
-                  updateData('selections', {}); 
-                  updateData('precisa_arte', undefined); 
+                  updateData('selections', {}); // Reseta seleções
                   updateData('quantidade', produto.wizard_config?.min_quantity || 1);
                   nextStep();
                 }}
@@ -123,6 +116,7 @@ export default function OrcamentoWizard() {
               className="w-full p-6 text-center text-4xl font-black rounded-2xl bg-white border-2 border-stone-200 text-[#F6C689] focus:border-[#F6C689] focus:ring-4 focus:ring-[#F6C689]/20 outline-none transition-all"
             />
   
+            {/* NOVO BLOCO CTA: Tabela de Descontos Progressivos */}
             {tiers.length > 0 && (
               <div className="mt-2 bg-[#EAF5F0] border border-[#25D366]/30 p-5 rounded-2xl shadow-sm">
                 <p className="text-[11px] font-black uppercase tracking-widest text-[#20bd5a] mb-3 flex items-center gap-2">
@@ -130,6 +124,7 @@ export default function OrcamentoWizard() {
                 </p>
                 <div className="space-y-2">
                   {tiers.map((tier, idx) => {
+                    // Destaca a faixa atual que o cliente atingiu com base no que ele digitou
                     const atingiuFaixa = data.quantidade >= tier.min && (tier.max === null || data.quantidade <= tier.max);
                     
                     return (
@@ -161,70 +156,6 @@ export default function OrcamentoWizard() {
         );
       }
 
-    // NOVO: ETAPA DE ARTE
-    if (currentFlowStep === 'art_module') {
-      const artFee = wizardConfig?.art_fee || 0;
-      
-      return (
-        <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-right-4">
-          <div className="text-center mb-4">
-            <h2 className="text-2xl font-black text-stone-900">E sobre a sua Arte?</h2>
-            <p className="text-stone-500 mt-2 text-sm">Escolha como você vai nos enviar o seu design.</p>
-          </div>
-          
-          {/* Opção 1: Cliente já tem a arte */}
-          <div 
-            onClick={() => updateData('precisa_arte', false)}
-            className={`w-full p-5 rounded-2xl border-2 text-left transition-all cursor-pointer ${
-              data.precisa_arte === false ? 'bg-[#EAF5F0] border-[#25D366] shadow-sm' : 'bg-white border-stone-100 hover:border-stone-300'
-            }`}
-          >
-            <div className="flex justify-between items-center mb-1">
-              <span className={`font-bold text-lg ${data.precisa_arte === false ? 'text-stone-900' : 'text-stone-700'}`}>Já tenho a arte pronta</span>
-              <span className="text-xs font-black text-[#20bd5a] bg-[#25D366]/10 px-2 py-1 rounded">SEM CUSTO</span>
-            </div>
-            <p className="text-xs text-stone-400 mb-3">Possuo a arte fechada nos padrões da gráfica.</p>
-            
-            {/* Renderiza as regras apenas se essa opção estiver selecionada */}
-            {data.precisa_arte === false && wizardConfig?.art_rules && (
-              <div className="mt-3 p-4 bg-white rounded-xl border border-[#25D366]/30 text-stone-600 text-sm whitespace-pre-line animate-in fade-in">
-                <span className="font-bold block mb-2 text-stone-800 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-[#20bd5a]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                  Regras de Envio Obrigatórias:
-                </span>
-                {wizardConfig.art_rules}
-              </div>
-            )}
-          </div>
-
-          {/* Opção 2: Cliente precisa de criação */}
-          <div 
-            onClick={() => updateData('precisa_arte', true)}
-            className={`w-full p-5 rounded-2xl border-2 text-left transition-all cursor-pointer ${
-              data.precisa_arte === true ? 'bg-[#FFF4E5] border-[#F6C689] shadow-sm' : 'bg-white border-stone-100 hover:border-stone-300'
-            }`}
-          >
-             <div className="flex justify-between items-center mb-1">
-              <span className={`font-bold text-lg ${data.precisa_arte === true ? 'text-stone-900' : 'text-stone-700'}`}>Preciso da Criação da Arte</span>
-              <span className="text-xs font-black text-orange-500 bg-orange-100 px-2 py-1 rounded">+ R$ {artFee.toFixed(2).replace('.', ',')}</span>
-            </div>
-            <p className="text-xs text-stone-500">Nossa equipe entrará em contato para criar um design incrível para você.</p>
-          </div>
-
-          <div className="flex gap-4 mt-4">
-            <button onClick={prevStep} className="px-6 py-4 rounded-2xl border-2 border-stone-200 text-stone-500 font-bold uppercase tracking-widest text-sm hover:bg-stone-50 transition-all">Voltar</button>
-            <button 
-              onClick={nextStep} 
-              disabled={data.precisa_arte === undefined}
-              className="flex-1 py-4 bg-[#F8D299] hover:bg-[#f5c37a] disabled:opacity-50 disabled:cursor-not-allowed text-stone-900 shadow-sm font-black rounded-2xl uppercase tracking-widest transition-all"
-            >
-              Continuar →
-            </button>
-          </div>
-        </div>
-      );
-    }
-
     // Passos Dinâmicos (Tecido, Adicionais, etc)
     if (currentFlowStep.startsWith('dynamic_')) {
       const stepId = currentFlowStep.replace('dynamic_', '');
@@ -240,6 +171,7 @@ export default function OrcamentoWizard() {
           </div>
           
           {wizardStep.type === 'single' ? (
+            // Botões de Seleção Única
             wizardStep.options.map((opt, i) => (
               <button
                 key={i}
@@ -256,6 +188,7 @@ export default function OrcamentoWizard() {
               </button>
             ))
           ) : (
+            // Checkboxes de Múltipla Escolha
             <div className="space-y-4">
               {wizardStep.options.map((opt, i) => {
                 const isSelected = ((data.selections[stepId] as string[]) || []).includes(opt.label);
@@ -301,9 +234,6 @@ export default function OrcamentoWizard() {
              <p className="text-stone-500 text-sm font-medium">Valor Total Estimado</p>
              <p className="text-5xl font-black text-[#F6C689] mt-2">R$ {data.valorTotal.toFixed(2).replace('.', ',')}</p>
              <p className="text-stone-400 text-xs mt-1">R$ {data.valorUnitario.toFixed(2).replace('.', ',')} por unidade</p>
-             {wizardConfig?.has_art_module && data.precisa_arte && (
-                <p className="text-orange-500 text-xs font-bold mt-2">Incluída Taxa de Criação de Arte (+R$ {wizardConfig.art_fee?.toFixed(2).replace('.', ',')})</p>
-             )}
           </div>
 
           <div className="bg-white rounded-3xl border border-stone-200 divide-y divide-stone-100 shadow-sm overflow-hidden">
@@ -317,12 +247,6 @@ export default function OrcamentoWizard() {
                <span className="text-[11px] font-bold text-stone-400 uppercase tracking-widest">Resumo do Pedido</span>
                <span className="text-stone-800 font-black text-lg">{data.quantidade}x {data.produto_nome}</span>
                
-               {wizardConfig?.has_art_module && (
-                 <span className="text-stone-600 mt-1 font-bold">
-                   • Arte: {data.precisa_arte ? 'Precisa de Criação' : 'Enviará Pronta'}
-                 </span>
-               )}
-
                {wizardConfig?.steps.map(s => {
                  const sel = data.selections[s.id];
                  if (!sel || sel.length === 0) return null;

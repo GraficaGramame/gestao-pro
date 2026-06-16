@@ -1,8 +1,7 @@
 /**
  * src/app/vendas/page.tsx
- * PDV Multi-tenant
- * Atualização: Insere o primeiro Recebimento automaticamente se houver Sinal na criação.
- * Bloqueia o campo de Sinal durante Edição (para forçar o uso do módulo Financeiro).
+ * PDV Multi-tenant - Gráfica Gramame
+ * Atualização: Interceptador de Leads + Desconto Progressivo Dinâmico nos Cards do PDV
  */
 'use client';
 
@@ -12,9 +11,10 @@ import { Product, OrderItem, Customer } from '@/types';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/components/auth/auth-provider';
 
+// Tipagem estendida para suportar o wizard_config do banco de dados
 interface ProductListItemProps {
-  product: Product;
-  onAdd: (product: Product, qty: number, width?: number, height?: number) => void;
+  product: Product & { wizard_config?: any };
+  onAdd: (product: any, qty: number, width?: number, height?: number, customUnitPrice?: number) => void;
 }
 
 function ProductListItem({ product, onAdd }: ProductListItemProps) {
@@ -23,9 +23,30 @@ function ProductListItem({ product, onAdd }: ProductListItemProps) {
   const [qty, setQty] = useState<string>('1');
   
   const isAreaProduct = product.calculation_type === 'AREA';
+  const parsedQty = parseFloat(qty.replace(',', '.')) || 1;
+
+  // ==========================================
+  // LÓGICA DE DESCONTO PROGRESSIVO NO PDV
+  // ==========================================
+  let currentUnitPrice = product.base_price;
+  let tierDiscount = 0;
+  let hasDiscount = false;
+
+  if (product.wizard_config?.quantity_tiers && product.wizard_config.quantity_tiers.length > 0) {
+    const applicableTier = product.wizard_config.quantity_tiers.find((tier: any) => {
+      const isAboveMin = parsedQty >= tier.min;
+      const isBelowMax = tier.max === null || parsedQty <= tier.max;
+      return isAboveMin && isBelowMax;
+    });
+
+    if (applicableTier) {
+      hasDiscount = true;
+      tierDiscount = applicableTier.discount_percentage;
+      currentUnitPrice = currentUnitPrice - (currentUnitPrice * (tierDiscount / 100));
+    }
+  }
 
   const handleAdd = () => {
-    const parsedQty = parseFloat(qty.replace(',', '.'));
     if (isNaN(parsedQty) || parsedQty <= 0) {
       alert('Informe uma quantidade válida.');
       return;
@@ -38,17 +59,25 @@ function ProductListItem({ product, onAdd }: ProductListItemProps) {
         alert('Informe largura e altura válidas.');
         return;
       }
-      onAdd(product, parsedQty, w, h);
+      onAdd(product, parsedQty, w, h, currentUnitPrice);
     } else {
-      onAdd(product, parsedQty);
+      onAdd(product, parsedQty, undefined, undefined, currentUnitPrice);
     }
     
     setQty('1'); 
   };
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-xl mb-2 hover:border-green-500/50 hover:bg-slate-800/50 transition-all gap-4">
-      <div className="flex-1">
+    <div className={`flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-slate-900 border ${hasDiscount ? 'border-green-500/30' : 'border-slate-800'} rounded-xl mb-2 hover:border-green-500/50 hover:bg-slate-800/50 transition-all gap-4 relative overflow-hidden`}>
+      
+      {/* BADGE DE DESCONTO VISUAL */}
+      {hasDiscount && (
+        <div className="absolute top-0 left-0 bg-green-500 text-slate-950 text-[8px] font-black px-2 py-0.5 rounded-br-lg uppercase tracking-widest z-10 shadow-lg shadow-green-500/20">
+          Desconto Ativo: {tierDiscount}% OFF
+        </div>
+      )}
+
+      <div className={`flex-1 ${hasDiscount ? 'pt-3' : 'pt-0'} sm:pt-0`}>
         <h3 className="font-bold text-sm text-slate-200">{product.name}</h3>
         <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest">
           {isAreaProduct ? 'Cálculo: M²' : `Unid: ${product.unit || 'un'}`}
@@ -56,9 +85,16 @@ function ProductListItem({ product, onAdd }: ProductListItemProps) {
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-sm font-black text-green-400 font-mono w-24 text-right pr-2">
-          R$ {product.base_price.toFixed(2)}
-        </span>
+        <div className="flex flex-col items-end w-20 pr-1">
+          {hasDiscount && (
+            <span className="text-[9px] text-red-400/80 line-through font-mono">
+              R$ {product.base_price.toFixed(2)}
+            </span>
+          )}
+          <span className={`text-sm font-black font-mono ${hasDiscount ? 'text-green-400' : 'text-slate-300'}`}>
+            R$ {currentUnitPrice.toFixed(2)}
+          </span>
+        </div>
 
         {isAreaProduct && (
           <div className="flex gap-1 items-center bg-slate-950 p-1 rounded-lg border border-slate-800">
@@ -105,7 +141,7 @@ function VendasContent() {
   const editId = searchParams.get('editId');
 
   const [cart, setCart] = useState<OrderItem[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<any[]>([]); // Any para absorver o wizard_config
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('Todos');
@@ -116,21 +152,94 @@ function VendasContent() {
   const [deliveryDate, setDeliveryDate] = useState<string>('');
   const [savingOrder, setSavingOrder] = useState(false);
 
+  // ========================================================
+  // INICIALIZAÇÃO E INTERCEPTAÇÃO DE LEADS DO SITE
+  // ========================================================
   useEffect(() => {
     if (!tenantId) return;
-    supabase.from('products').select('*').eq('tenant_id', tenantId).order('name').then(({ data }: { data: Product[] | null }) => {
-      if (data) setProducts(data.map((p: Product) => ({ ...p, unit: p.unit || 'un' })));
-    });
-    supabase.from('customers').select('*').eq('tenant_id', tenantId).order('name').then(({ data }: { data: Customer[] | null }) => {
-      if (data) setCustomers(data);
-    });
-  }, [tenantId]);
 
+    const loadInitialData = async () => {
+      const [prodRes, custRes] = await Promise.all([
+        (supabase as any).from('products').select('*').eq('tenant_id', tenantId).order('name'),
+        (supabase as any).from('customers').select('*').eq('tenant_id', tenantId).order('name')
+      ]);
+
+      const loadedProducts = prodRes.data ? prodRes.data.map((p: any) => ({ ...p, unit: p.unit || 'un' })) : [];
+      let loadedCustomers = custRes.data || [];
+
+      setProducts(loadedProducts);
+      setCustomers(loadedCustomers);
+
+      const draftStr = sessionStorage.getItem('draftOrderFromLead');
+      const isFromLead = searchParams.get('fromLead') === 'true';
+
+      if (draftStr && isFromLead) {
+        try {
+          const draft = JSON.parse(draftStr);
+          sessionStorage.removeItem('draftOrderFromLead'); 
+
+          let targetCustId = '';
+          if (draft.customer_name) {
+            const existingCust = loadedCustomers.find((c: any) => 
+              c.whatsapp === draft.customer_whatsapp || 
+              c.name.toLowerCase().trim() === draft.customer_name.toLowerCase().trim()
+            );
+
+            if (existingCust) {
+              targetCustId = existingCust.id;
+            } else {
+              const { data: newCust }: { data: any } = await (supabase as any).from('customers').insert({
+                tenant_id: tenantId,
+                name: draft.customer_name,
+                whatsapp: draft.customer_whatsapp || ''
+              }).select().single();
+
+              if (newCust) {
+                setCustomers(prev => [...prev, newCust]);
+                targetCustId = newCust.id;
+              }
+            }
+          }
+          setSelectedCustomerId(targetCustId);
+
+          const draftCart = draft.items.map((item: any) => {
+            const matchingProd = loadedProducts.find((p: any) => p.name.toLowerCase() === item.description.toLowerCase());
+            
+            const adicText = item.selections ? Object.values(item.selections).join(' • ') : '';
+            const finalDesc = adicText ? `${item.description} (${adicText})` : item.description;
+
+            return {
+              id: Math.random().toString(),
+              product_id: matchingProd?.id || null, 
+              description: finalDesc,
+              quantity: Number(item.quantity),
+              width: null,
+              height: null,
+              unit_price: Number(item.unit_price),
+              total_price: Number(item.total_price),
+              cost_total: matchingProd ? matchingProd.cost_price * Number(item.quantity) : 0
+            };
+          });
+
+          setCart(draftCart);
+
+        } catch (e) {
+          console.error("Erro ao importar rascunho do site:", e);
+        }
+      }
+    };
+
+    loadInitialData();
+  }, [tenantId, searchParams]);
+
+  // ========================================================
+  // EDIÇÃO DE PEDIDO (PADRÃO)
+  // ========================================================
   useEffect(() => {
     if (!editId || !tenantId) return;
     
     const fetchOrderForEdit = async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('orders')
         .select('*, order_items(*)')
         .eq('id', editId)
@@ -161,13 +270,16 @@ function VendasContent() {
     fetchOrderForEdit();
   }, [editId, tenantId]);
 
+  // ========================================================
+  // APLICAÇÃO DE CUPONS AUTOMÁTICOS
+  // ========================================================
   useEffect(() => {
     if (!selectedCustomerId || !tenantId || editId) return;
     
     const applyCustomerCoupon = async () => {
       const customer = customers.find(c => c.id === selectedCustomerId) as any;
       if (customer?.associated_coupon) {
-        const { data: coupon } = await supabase
+        const { data: coupon } = await (supabase as any)
           .from('coupons')
           .select('*')
           .eq('code', customer.associated_coupon)
@@ -196,7 +308,10 @@ function VendasContent() {
     );
   }
 
-  const addToCart = (product: Product, providedQty: number, width?: number, height?: number) => {
+  // ========================================================
+  // FUNÇÕES DO CARRINHO E CHECKOUT
+  // ========================================================
+  const addToCart = (product: any, providedQty: number, width?: number, height?: number, customUnitPrice?: number) => {
     let finalQuantity = providedQty;
     let desc = product.name;
 
@@ -206,6 +321,8 @@ function VendasContent() {
       desc = `${product.name} (${width.toFixed(2)}x${height.toFixed(2)}m) x ${providedQty} un`;
     }
 
+    const unitPriceToUse = customUnitPrice ?? product.base_price;
+
     const newItem: OrderItem = {
       id: Math.random().toString(),
       product_id: product.id,
@@ -213,8 +330,8 @@ function VendasContent() {
       quantity: finalQuantity,
       width: width ?? null,
       height: height ?? null,
-      unit_price: product.base_price,
-      total_price: Number((product.base_price * finalQuantity).toFixed(2)),
+      unit_price: unitPriceToUse,
+      total_price: Number((unitPriceToUse * finalQuantity).toFixed(2)),
       cost_total: Number((product.cost_price * finalQuantity).toFixed(2)),
     };
 
@@ -242,31 +359,28 @@ function VendasContent() {
       const paymentStatus = numDownPayment >= cartTotal ? 'PAID' : numDownPayment > 0 ? 'PARTIAL' : 'PENDING';
       
       if (editId) {
-        // ATUALIZAÇÃO DE PEDIDO
-        // Apenas atualiza totais. Recebimentos NÃO são modificados aqui para blindar o fluxo de caixa.
-        await supabase.from('orders').update({
+        await (supabase as any).from('orders').update({
           customer_id: selectedCustomerId || null,
           total: cartTotal,
           discount_value: numDiscount,
           delivery_date: deliveryDate || null
         }).eq('id', editId).eq('tenant_id', tenantId);
 
-        await supabase.from('order_items').delete().eq('order_id', editId);
+        await (supabase as any).from('order_items').delete().eq('order_id', editId);
         const itemsPayload = cart.map(({ id, ...rest }: any) => ({ ...rest, order_id: editId }));
-        await supabase.from('order_items').insert(itemsPayload);
+        await (supabase as any).from('order_items').insert(itemsPayload);
 
         alert('Pedido atualizado com sucesso!');
       } else {
-        // NOVO PEDIDO
         const initialStatus = numDownPayment > 0 ? 'SERVICE_ORDER' : 'QUOTATION';
         
-        const { data: newOrder, error: orderError } = await supabase.from('orders').insert({
+        const { data: newOrder, error: orderError }: { data: any, error: any } = await (supabase as any).from('orders').insert({
           tenant_id: tenantId,
           customer_id: selectedCustomerId || null,
           status: initialStatus,
           total: cartTotal,
           discount_value: numDiscount,
-          down_payment_value: numDownPayment, // Fica como cache
+          down_payment_value: numDownPayment,
           payment_status: paymentStatus,
           delivery_date: deliveryDate || null
         }).select().single();
@@ -275,11 +389,10 @@ function VendasContent() {
 
         if (newOrder) {
           const itemsPayload = cart.map(({ id, ...rest }: any) => ({ ...rest, order_id: newOrder.id }));
-          await supabase.from('order_items').insert(itemsPayload);
+          await (supabase as any).from('order_items').insert(itemsPayload);
 
-          // NOVO: INSERE O SINAL NA TABELA DE HISTÓRICO DE RECEBIMENTOS AUTOMATICAMENTE
           if (numDownPayment > 0) {
-            await supabase.from('receipts').insert({
+            await (supabase as any).from('receipts').insert({
               tenant_id: tenantId,
               order_id: newOrder.id,
               amount: numDownPayment,
@@ -307,7 +420,7 @@ function VendasContent() {
     if (!confirmCancel) return;
 
     setSavingOrder(true);
-    await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', editId).eq('tenant_id', tenantId);
+    await (supabase as any).from('orders').update({ status: 'CANCELLED' }).eq('id', editId).eq('tenant_id', tenantId);
     alert('Pedido Cancelado.');
     router.push('/pedidos');
   };
@@ -453,7 +566,7 @@ function VendasContent() {
                 <span className={`${editId ? 'text-slate-600' : 'text-green-400'} font-black`}>R$</span>
                 <input
                   type="number" step="0.01" min="0" value={downPayment} onChange={e => setDownPayment(e.target.value)}
-                  disabled={!!editId} // Desativa edição financeira no PDV se for atualização de pedido
+                  disabled={!!editId}
                   className={`w-20 bg-slate-950 rounded-lg px-2 py-1 text-right font-mono font-black outline-none transition-colors ${
                     editId ? 'text-slate-500 border-slate-800 cursor-not-allowed' : 'text-green-400 border border-green-500/30 focus:border-green-500'
                   }`}

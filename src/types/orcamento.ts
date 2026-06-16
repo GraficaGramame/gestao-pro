@@ -1,23 +1,21 @@
 export interface OrcamentoData {
     nome: string;
     whatsapp: string;
-    produto: string;
-    tecido: string;
-    estampa: string;
-    quantidade: string;
-    adicionais: string[];
-    prazo: string;
+    produto_id: string;
+    produto_nome: string;
+    quantidade: number;
+    selections: Record<string, string | string[]>; // Guarda dinamicamente { "step_1": "Algodão", "step_2": ["Manga Longa", "Tag"] }
     valorUnitario: number;
+    valorTotal: number;
   }
   
   export const initialOrcamentoData: OrcamentoData = {
     nome: '',
     whatsapp: '',
-    produto: '',
-    tecido: '',
-    estampa: '',
-    quantidade: '',
-    adicionais: [],
-    prazo: '',
-    valorUnitario: 42.00,
+    produto_id: '',
+    produto_nome: '',
+    quantidade: 1, 
+    selections: {},
+    valorUnitario: 0,
+    valorTotal: 0,
   };

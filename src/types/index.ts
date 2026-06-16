@@ -1,13 +1,69 @@
-/**
- * src/types/index.ts
- * DICIONÁRIO MESTRE - BLINDAGEM CONTRA ERRO 'NEVER'
- * Atualização: Adicionadas as interfaces Post e Comment para o motor de SEO
- */
-
+// src/types/index.ts
 export type CalculationType = 'AREA' | 'UNIT' | 'TIME' | 'FIXED';
 export type OrderStatus = 'QUOTATION' | 'SERVICE_ORDER' | 'PRODUCTION' | 'COMPLETED' | 'CANCELLED';
 export type PaymentStatus = 'PENDING' | 'PARTIAL' | 'PAID';
 export type ExpenseCategory = 'MAINTENANCE' | 'SUPPLIES' | 'LOGISTICS' | 'FOOD' | 'OTHER';
+
+// ==========================================
+// INTERFACES: MOTOR DE ORÇAMENTOS (WIZARD)
+// ==========================================
+
+export interface WizardOption {
+  label: string;
+  price_modifier: number; 
+}
+
+export interface WizardStep {
+  id: string;             
+  title: string;          
+  subtitle: string;       
+  type: 'single' | 'multiple'; 
+  options: WizardOption[];
+}
+
+export interface QuantityTier {
+  min: number;
+  max: number | null;     
+  discount_percentage: number; 
+}
+
+export interface WizardConfig {
+  steps: WizardStep[];
+  quantity_tiers: QuantityTier[];
+  base_production_days: number; 
+  min_quantity?: number; 
+  has_art_module?: boolean; // NOVO: Módulo de Arte Ativo?
+  art_fee?: number;         // NOVO: Taxa Fixa de Criação
+  art_rules?: string;       // NOVO: Regras de Envio (PDF, Curvas, etc)
+}
+
+export interface OrcamentoData {
+  nome: string;
+  whatsapp: string;
+  produto_id: string;
+  produto_nome: string;
+  quantidade: number;
+  selections: Record<string, string | string[]>; 
+  precisa_arte?: boolean; // NOVO: Armazena a decisão do cliente
+  valorUnitario: number;
+  valorTotal: number;
+}
+
+export const initialOrcamentoData: OrcamentoData = {
+  nome: '',
+  whatsapp: '',
+  produto_id: '',
+  produto_nome: '',
+  quantidade: 1, 
+  selections: {},
+  precisa_arte: undefined, // undefined para forçar ele a escolher
+  valorUnitario: 0,
+  valorTotal: 0,
+};
+
+// ==========================================
+// INTERFACES EXISTENTES (Não foram alteradas)
+// ==========================================
 
 export interface Customer {
   id: string;
@@ -38,6 +94,9 @@ export interface Product {
   base_price: number;
   cost_price: number;
   is_outsourced: boolean;
+  
+  show_on_website?: boolean; 
+  wizard_config?: WizardConfig | null;
 }
 
 export interface OrderItem {

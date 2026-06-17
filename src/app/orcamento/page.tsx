@@ -37,8 +37,8 @@ export default function OrcamentoWizard() {
       return (
         <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4">
           <div className="text-center">
-            <h2 className="text-3xl font-black text-stone-900 tracking-tight">Que bom que você fez contato!</h2>
-            <h3 className="text-xl font-bold text-stone-700 mt-2">Será uma alegria estampar as suas ideias</h3>
+            <h2 className="text-3xl font-black text-stone-900 tracking-tight">Que bom ver você aqui!</h2>
+            <h3 className="text-xl font-bold text-stone-700 mt-2">Será uma alegria dar vida as suas ideias</h3>
             <p className="text-stone-500 mt-4 text-sm">Informe os dados abaixo para iniciar o orçamento de seu pedido</p>
           </div>
           
@@ -361,7 +361,7 @@ export default function OrcamentoWizard() {
         <div className="flex justify-center mb-8">
           <div className="px-5 py-2.5 bg-white border border-stone-200 shadow-sm rounded-full flex items-center gap-3">
              <span className="w-2.5 h-2.5 rounded-full bg-[#F6C689] animate-pulse"></span>
-             <span className="text-[11px] font-black text-stone-600 uppercase tracking-widest">Orçamento Online</span>
+             <span className="text-[11px] font-black text-stone-600 uppercase tracking-widest">Pedidos Online Gráfica Gramame</span>
           </div>
         </div>
 

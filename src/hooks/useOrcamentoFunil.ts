@@ -1,3 +1,8 @@
+/**
+ * src/hooks/useOrcamentoFunil.ts
+ * Hook de controle do funil público de orçamentos.
+ * Refatorado com blindagem Multi-tenant para isolamento de dados do SaaS.
+ */
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { OrcamentoData, initialOrcamentoData } from '@/types';
@@ -10,7 +15,8 @@ export interface ProdutoCatalogo {
   wizard_config: WizardConfig | null;
 }
 
-export function useOrcamentoFunil() {
+// Injetamos o tenantId. Ele usa a variável de ambiente como fallback para não quebrar o MVP atual.
+export function useOrcamentoFunil(tenantId: string = process.env.NEXT_PUBLIC_DEFAULT_TENANT_ID || '') {
   const [step, setStep] = useState(1);
   const [data, setData] = useState<OrcamentoData>(initialOrcamentoData);
   const [funilId, setFunilId] = useState<string | null>(null);
@@ -20,9 +26,17 @@ export function useOrcamentoFunil() {
 
   useEffect(() => {
     const fetchProdutos = async () => {
+      if (!tenantId) {
+        console.warn('Alerta Arquitetura: tenantId não fornecido ao funil público.');
+        setIsLoadingCatalogo(false);
+        return;
+      }
+
+      // Consulta blindada: Apenas produtos marcados para o site E pertencentes à loja correta
       const { data: produtos, error } = await (supabase as any)
         .from('products')
         .select('id, name, base_price, wizard_config')
+        .eq('tenant_id', tenantId)
         .eq('show_on_website', true)
         .order('base_price', { ascending: true });
 
@@ -40,7 +54,7 @@ export function useOrcamentoFunil() {
       setIsLoadingCatalogo(false);
     };
     fetchProdutos();
-  }, []);
+  }, [tenantId]);
 
   useEffect(() => {
     if (!data.produto_id) return;
@@ -88,7 +102,7 @@ export function useOrcamentoFunil() {
 
     let totalPrice = unitPrice * data.quantidade;
 
-    // NOVO: Aplica a Taxa de Arte (Uma única vez no valor total do pedido)
+    // Aplica a Taxa de Arte (Uma única vez no valor total do pedido)
     if (config?.has_art_module && data.precisa_arte === true && config.art_fee) {
        totalPrice += config.art_fee;
     }
@@ -124,10 +138,11 @@ export function useOrcamentoFunil() {
   };
 
   const persistToDatabase = async (currentStep: number, status: 'PENDENTE' | 'FINALIZADO' = 'PENDENTE') => {
-    if (!data.whatsapp || !data.nome) return;
+    if (!data.whatsapp || !data.nome || !tenantId) return;
 
     try {
       const payload = {
+        tenant_id: tenantId, // Lead atrelado exclusivamente à loja atual
         nome: data.nome,
         whatsapp: data.whatsapp,
         etapa_atual: currentStep,
@@ -137,7 +152,7 @@ export function useOrcamentoFunil() {
       };
 
       if (funilId) {
-        await (supabase as any).from('orcamentos_funil').update(payload).eq('id', funilId);
+        await (supabase as any).from('orcamentos_funil').update(payload).eq('id', funilId).eq('tenant_id', tenantId);
       } else {
         const { data: newRecord } = await (supabase as any)
           .from('orcamentos_funil')
@@ -181,7 +196,6 @@ export function useOrcamentoFunil() {
       });
     }
 
-    // NOVO: Adiciona a resposta da arte no resumo do WhatsApp
     if (config?.has_art_module) {
       if (data.precisa_arte) {
         details += `- *Arte:* Cliente precisa de Criação (+R$ ${config.art_fee?.toFixed(2).replace('.', ',')})\n`;
@@ -199,6 +213,8 @@ export function useOrcamentoFunil() {
     details += `- *Valor Total:* R$ ${data.valorTotal.toFixed(2).replace('.', ',')}\n`;
     
     const mensagem = `Olá, meu nome é *${data.nome}* e realizei um orçamento pelo site.\n\n*Detalhes do Pedido:*\n${details}`;
+    
+    // Nota de Arquitetura futura: O número do WhatsApp precisará vir da tabela `tenants` quando houver mais clientes no SaaS.
     const url = `https://wa.me/5583998474211?text=${encodeURIComponent(mensagem)}`;
     window.open(url, '_blank');
   };

@@ -12,8 +12,8 @@ import AppShell from "@/components/ui/app-shell";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Gestão Pro - Gráfica Gramame",
-  description: "Sistema de gestão inteligente para gráficas e vitrine online.",
+  title: "Gráfica Gramame - Zona Sul de João Pessoa - PB - Brasil",
+  description: "Materiais impressos de altíssima qualidade desenvolvidos para dar destaque e profissionalismo ao seu negócio.",
 };
 
 export default function RootLayout({

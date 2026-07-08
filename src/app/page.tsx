@@ -477,7 +477,7 @@ export default function HomeSite() {
           
           <div className="border-t border-slate-900 pt-8 flex flex-col md:flex-row justify-between items-center text-slate-600 text-xs font-mono gap-4 uppercase tracking-widest">
             <p>© {new Date().getFullYear()} Gráfica Gramame.</p>
-            <p>Tecnologia por <span className="text-cyan-400 font-black">Gestão Pro</span></p>
+            <p>Tecnologia por <span className="text-cyan-400 font-black">Fabio Souza</span></p>
           </div>
         </div>
       </footer>

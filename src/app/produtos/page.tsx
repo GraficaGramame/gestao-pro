@@ -1,15 +1,23 @@
 /**
  * src/app/produtos/page.tsx
- * Módulo de Produtos - UX Premium, Busca Instantânea e Vitrine Dinâmica.
+ * Módulo de Produtos - UX Premium, Busca Instantânea, Vitrine Dinâmica e Motor de Custos.
+ * Arquivo completo para substituição total.
  */
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
-import { Product, CalculationType } from '@/types';
+import { FormEvent, useEffect, useState, useMemo } from 'react';
+import { CalculationType } from '@/types';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/components/auth/auth-provider';
-
 import WizardBuilderModal from '@/components/ui/wizard-builder-modal';
+
+import { 
+  CostComponent, 
+  PricingConfig, 
+  calculateDirectCost, 
+  calculateRecommendedPrice,
+  calculateRealProfitability
+} from '@/lib/calculations/advancedPricing';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', { 
@@ -19,21 +27,14 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: 4 
   }).format(value || 0);
 
-const calcLabels: Record<string, string> = { 
-  AREA: 'Área (m²)', 
-  UNIT: 'Unidade', 
-  TIME: 'Tempo', 
-  FIXED: 'Fixo' 
-};
-
-const parseMoneyInput = (value: string): number => {
+const parseMoneyInput = (value: string | number): number => {
+  if (typeof value === 'number') return value;
   if (!value) return 0;
   const sanitized = value.replace(/[^\d.,]/g, '').replace(',', '.');
   const parsed = parseFloat(sanitized);
   return isNaN(parsed) ? 0 : parsed;
 };
 
-// Tipagem para os campos dinâmicos da vitrine
 interface CustomField {
   id: string;
   label: string;
@@ -48,17 +49,20 @@ export default function ProdutosPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Estados PDV
+  const [pricingConfig, setPricingConfig] = useState<PricingConfig | null>(null);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [calcType, setCalcType] = useState<CalculationType>('UNIT');
   const [unit, setUnit] = useState('un');
-  const [basePrice, setBasePrice] = useState<string>('');
-  const [costPrice, setCostPrice] = useState<string>('');
+  const [basePrice, setBasePrice] = useState<string>(''); 
+  const [costPrice, setCostPrice] = useState<string>(''); 
   const [isOutsourced, setIsOutsourced] = useState(false);
   const [showOnWebsite, setShowOnWebsite] = useState(false); 
 
-  // Estados E-commerce
+  const [hasDetailedCost, setHasDetailedCost] = useState(false);
+  const [costComponents, setCostComponents] = useState<Partial<CostComponent>[]>([]);
+
   const [slug, setSlug] = useState('');
   const [theme, setTheme] = useState('');
   const [tag, setTag] = useState('');
@@ -69,36 +73,82 @@ export default function ProdutosPage() {
 
   const [wizardModalProduct, setWizardModalProduct] = useState<any | null>(null);
 
-  const fetchProducts = async () => {
-    if (!tenantId) return;
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('products')
+  useEffect(() => {
+    async function init() {
+      if (!tenantId) return;
+      setLoading(true);
+      
+      const { data: rawConfigData } = await (supabase as any)
+        .from('tenant_pricing_configs')
         .select('*')
         .eq('tenant_id', tenantId)
+        .single();
+
+      if (rawConfigData) {
+        const configData = rawConfigData as any;
+        setPricingConfig({
+          target_margin: configData.target_margin,
+          tax_percentage: configData.tax_percentage,
+          payment_fee_percentage: configData.payment_fee_percentage,
+          fixed_cost_apportionment_method: configData.fixed_cost_apportionment_method,
+          fixed_cost_rate: 0 
+        });
+      }
+
+      await fetchProducts();
+    }
+    init();
+  }, [tenantId]);
+
+  const fetchProducts = async () => {
+    try {
+      const { data, error } = await (supabase as any)
+        .from('products')
+        .select('*')
+        .eq('tenant_id', tenantId as string)
         .order('name', { ascending: true });
 
       if (error) throw error;
       setProducts(data || []);
     } catch (error) {
       console.error('Erro ao buscar catálogo:', error);
-      alert('Falha ao carregar os produtos.');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchProducts();
-  }, [tenantId]);
-
-  // Lógica do Construtor de Campos
-  const addCustomField = () => {
-    setVitrineCustomFields([
-      ...vitrineCustomFields, 
-      { id: Date.now().toString(), label: '', placeholder: '', required: true }
+  const addCostComponent = () => {
+    setCostComponents([
+      ...costComponents,
+      { id: Date.now().toString(), name: '', type: 'RAW_MATERIAL', quantity: 1, unit: 'un', unit_cost: 0, loss_percentage: 0 }
     ]);
+  };
+
+  const removeCostComponent = (id: string) => {
+    setCostComponents(costComponents.filter(c => c.id !== id));
+  };
+
+  const updateCostComponent = (id: string, field: keyof CostComponent, value: any) => {
+    setCostComponents(costComponents.map(c => c.id === id ? { ...c, [field]: value } : c));
+  };
+
+  const calculatedDirectCost = useMemo(() => {
+    if (!hasDetailedCost) return parseMoneyInput(costPrice);
+    return calculateDirectCost(costComponents as CostComponent[]);
+  }, [hasDetailedCost, costComponents, costPrice]);
+
+  const calculatedRecommendedPrice = useMemo(() => {
+    if (!pricingConfig || !hasDetailedCost) return 0;
+    return calculateRecommendedPrice(calculatedDirectCost, 0, pricingConfig);
+  }, [calculatedDirectCost, pricingConfig, hasDetailedCost]);
+
+  const realProfitability = useMemo(() => {
+    if (!pricingConfig) return null;
+    return calculateRealProfitability(parseMoneyInput(basePrice), calculatedDirectCost, 0, pricingConfig);
+  }, [basePrice, calculatedDirectCost, pricingConfig]);
+
+  const addCustomField = () => {
+    setVitrineCustomFields([...vitrineCustomFields, { id: Date.now().toString(), label: '', placeholder: '', required: true }]);
   };
 
   const removeCustomField = (idToRemove: string) => {
@@ -116,44 +166,68 @@ export default function ProdutosPage() {
 
     const formattedSlug = slug.trim() ? slug.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-') : null;
 
-    const payload = {
+    const payload: any = {
       tenant_id: tenantId,
       name: name.trim(),
       calculation_type: calcType,
       unit: unit.trim(),
       base_price: parseMoneyInput(basePrice),
-      cost_price: parseMoneyInput(costPrice),
+      cost_price: hasDetailedCost ? calculatedDirectCost : parseMoneyInput(costPrice),
+      has_detailed_cost: hasDetailedCost,
+      recommended_price: hasDetailedCost ? calculatedRecommendedPrice : null,
       is_outsourced: isOutsourced,
       show_on_website: showOnWebsite,
-      is_public: showOnWebsite,
       slug: formattedSlug,
       theme: theme.trim() || null,
       tag: tag.trim() || null,
       description: description.trim() || null,
       promotional_old_price: parseMoneyInput(promotionalOldPrice),
       images: imagesUrl ? imagesUrl.split(',').map(s => s.trim()).filter(Boolean) : [],
-      vitrine_custom_fields: vitrineCustomFields, // Salva os campos dinâmicos no JSONB
+      vitrine_custom_fields: vitrineCustomFields,
     };
 
     try {
+      let currentProductId = editingId;
+
       if (editingId) {
         const { error } = await (supabase as any).from('products').update(payload).eq('id', editingId).eq('tenant_id', tenantId);
         if (error) throw error;
       } else {
-        const { error } = await (supabase as any).from('products').insert(payload);
+        const { data: newProd, error } = await (supabase as any).from('products').insert(payload).select('id').single();
         if (error) throw error;
+        currentProductId = newProd.id;
       }
+
+      if (hasDetailedCost && currentProductId) {
+        await (supabase as any).from('product_cost_components').delete().eq('product_id', currentProductId);
+        
+        if (costComponents.length > 0) {
+          const compsToInsert = costComponents.map(c => ({
+            tenant_id: tenantId,
+            product_id: currentProductId,
+            name: c.name,
+            type: c.type || 'RAW_MATERIAL',
+            quantity: Number(c.quantity),
+            unit: c.unit || 'un',
+            unit_cost: Number(c.unit_cost),
+            loss_percentage: Number(c.loss_percentage || 0)
+          }));
+          const { error: compError } = await (supabase as any).from('product_cost_components').insert(compsToInsert);
+          if (compError) throw compError;
+        }
+      }
+
       handleCancel();
       await fetchProducts();
     } catch (error) {
       console.error('Erro ao salvar produto:', error);
-      alert('Erro ao salvar o produto. Verifique os dados (verifique se o slug já não está em uso) e tente novamente.');
+      alert('Erro ao salvar o produto. Verifique os dados e tente novamente.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleEdit = (product: any) => {
+  const handleEdit = async (product: any) => {
     setEditingId(product.id);
     setName(product.name);
     setCalcType(product.calculation_type);
@@ -162,6 +236,7 @@ export default function ProdutosPage() {
     setCostPrice(product.cost_price?.toString() || '');
     setIsOutsourced(product.is_outsourced || false);
     setShowOnWebsite(product.show_on_website || false);
+    setHasDetailedCost(product.has_detailed_cost || false);
     
     setSlug(product.slug || '');
     setTheme(product.theme || '');
@@ -171,6 +246,13 @@ export default function ProdutosPage() {
     setImagesUrl(product.images ? product.images.join(', ') : '');
     setVitrineCustomFields(product.vitrine_custom_fields || []);
 
+    if (product.has_detailed_cost) {
+      const { data: comps } = await (supabase as any).from('product_cost_components').select('*').eq('product_id', product.id);
+      if (comps) setCostComponents(comps);
+    } else {
+      setCostComponents([]);
+    }
+
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -178,21 +260,19 @@ export default function ProdutosPage() {
     if (!tenantId) return; 
     if (!confirm(`Tem certeza que deseja excluir o produto "${productName}" permanentemente?`)) return;
     try {
-      const { error } = await supabase.from('products').delete().eq('id', id).eq('tenant_id', tenantId);
+      const { error } = await (supabase as any).from('products').delete().eq('id', id).eq('tenant_id', tenantId);
       if (error) throw error;
       fetchProducts();
     } catch (error) {
       console.error('Erro ao excluir:', error);
-      alert('Erro ao excluir.');
     }
   };
 
   const toggleWebsiteVisibility = async (id: string, currentStatus: boolean) => {
     if (!tenantId) return; 
     try {
-      setProducts(products.map(p => p.id === id ? { ...p, show_on_website: !currentStatus, is_public: !currentStatus } : p));
-      const { error } = await (supabase as any).from('products').update({ show_on_website: !currentStatus, is_public: !currentStatus }).eq('id', id).eq('tenant_id', tenantId);
-      if (error) throw error;
+      setProducts(products.map(p => p.id === id ? { ...p, show_on_website: !currentStatus } : p));
+      await (supabase as any).from('products').update({ show_on_website: !currentStatus }).eq('id', id).eq('tenant_id', tenantId);
     } catch (error) {
       console.error('Erro ao alternar visibilidade:', error);
       fetchProducts(); 
@@ -208,7 +288,8 @@ export default function ProdutosPage() {
     setCostPrice('');
     setIsOutsourced(false);
     setShowOnWebsite(false);
-    
+    setHasDetailedCost(false);
+    setCostComponents([]);
     setSlug('');
     setTheme('');
     setTag('');
@@ -240,7 +321,7 @@ export default function ProdutosPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 block">Nome do Produto</label>
-              <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Camiseta Básica" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-sm font-bold text-slate-200 outline-none focus:border-green-500 transition-colors" />
+              <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Camiseta DTF" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-sm font-bold text-slate-200 outline-none focus:border-green-500 transition-colors" />
             </div>
             
             <div className="grid grid-cols-2 gap-4">
@@ -256,16 +337,92 @@ export default function ProdutosPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 block">Custo (R$)</label>
-                <input type="text" required value={costPrice} onChange={(e) => setCostPrice(e.target.value)} placeholder="0,00" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-sm font-mono font-black text-red-500 outline-none focus:border-red-500" />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 block">Venda (R$)</label>
-                <input type="text" required value={basePrice} onChange={(e) => setBasePrice(e.target.value)} placeholder="0,00" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-sm font-mono font-black text-green-500 outline-none focus:border-green-500" />
-              </div>
+            {/* SEÇÃO MOTOR DE CUSTOS */}
+            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-4">
+              <label className="flex items-center justify-between cursor-pointer">
+                <span className={`text-[10px] font-black uppercase tracking-widest ${hasDetailedCost ? 'text-cyan-400' : 'text-slate-400'}`}>
+                  Estrutura de Custos Avançada
+                </span>
+                <input type="checkbox" checked={hasDetailedCost} onChange={(e) => setHasDetailedCost(e.target.checked)} className="w-5 h-5 rounded border-slate-700 bg-slate-900 accent-cyan-500" />
+              </label>
+
+              {!hasDetailedCost ? (
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 block">Custo Fixo Legado (R$)</label>
+                  <input type="text" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} placeholder="0,00" className="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-sm font-mono font-black text-red-400 outline-none focus:border-red-500" />
+                </div>
+              ) : (
+                <div className="space-y-4 animate-in fade-in">
+                  <div className="space-y-3">
+                    {costComponents.map((comp) => (
+                      <div key={comp.id} className="bg-slate-900 p-3 rounded-xl border border-slate-800 space-y-2 relative">
+                        <button type="button" onClick={() => removeCostComponent(comp.id!)} className="absolute top-2 right-2 text-red-500 hover:text-red-400">
+                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                        <input type="text" placeholder="Nome do Insumo (Ex: Camiseta Lisa)" value={comp.name} onChange={e => updateCostComponent(comp.id!, 'name', e.target.value)} className="w-[90%] bg-transparent border-b border-slate-800 text-xs font-bold text-white outline-none focus:border-cyan-500 pb-1" />
+                        
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          <select value={comp.type} onChange={e => updateCostComponent(comp.id!, 'type', e.target.value)} className="bg-slate-950 border border-slate-800 rounded text-[10px] text-slate-300 p-1.5 outline-none">
+                            <option value="RAW_MATERIAL">Matéria-Prima</option>
+                            <option value="OUTSOURCING">Terceirização</option>
+                            <option value="LABOR">Mão de Obra</option>
+                            <option value="PACKAGING">Embalagem</option>
+                          </select>
+                          <div className="flex bg-slate-950 border border-slate-800 rounded overflow-hidden">
+                            <input type="number" placeholder="Qtd" value={comp.quantity} onChange={e => updateCostComponent(comp.id!, 'quantity', e.target.value)} className="w-1/2 bg-transparent text-[10px] p-1.5 text-center outline-none border-r border-slate-800" />
+                            <input type="text" placeholder="Un" value={comp.unit} onChange={e => updateCostComponent(comp.id!, 'unit', e.target.value)} className="w-1/2 bg-transparent text-[10px] p-1.5 text-center outline-none" />
+                          </div>
+                          <div className="flex items-center bg-slate-950 border border-slate-800 rounded px-1.5">
+                            <span className="text-[10px] text-slate-500">R$</span>
+                            <input type="number" step="0.01" placeholder="Custo Un." value={comp.unit_cost} onChange={e => updateCostComponent(comp.id!, 'unit_cost', e.target.value)} className="w-full bg-transparent text-[10px] p-1.5 text-right outline-none text-red-400" />
+                          </div>
+                          <div className="flex items-center bg-slate-950 border border-slate-800 rounded px-1.5">
+                            <span className="text-[10px] text-slate-500">Perda %</span>
+                            <input type="number" step="0.1" placeholder="Ex: 10" value={comp.loss_percentage} onChange={e => updateCostComponent(comp.id!, 'loss_percentage', e.target.value)} className="w-full bg-transparent text-[10px] p-1.5 text-right outline-none text-orange-400" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" onClick={addCostComponent} className="w-full py-2 border border-dashed border-cyan-500/30 text-cyan-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-cyan-500/10 transition-colors">
+                    + Adicionar Insumo
+                  </button>
+
+                  <div className="pt-4 border-t border-slate-800 grid grid-cols-2 gap-2">
+                    <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                      <span className="block text-[9px] uppercase tracking-widest text-slate-500">Custo Direto</span>
+                      <span className="font-mono font-black text-red-400 text-sm">{formatCurrency(calculatedDirectCost)}</span>
+                    </div>
+                    <div className="bg-cyan-950/30 p-3 rounded-xl border border-cyan-900/50">
+                      <span className="block text-[9px] uppercase tracking-widest text-cyan-500">Preço Sugerido</span>
+                      <span className="font-mono font-black text-cyan-400 text-sm">{formatCurrency(calculatedRecommendedPrice)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 block">Preço de Venda Praticado (R$)</label>
+              <input type="text" required value={basePrice} onChange={(e) => setBasePrice(e.target.value)} placeholder="0,00" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-sm font-mono font-black text-green-500 outline-none focus:border-green-500" />
+            </div>
+
+            {realProfitability && hasDetailedCost && (
+               <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 flex justify-between items-center">
+                 <div className="flex flex-col">
+                   <span className="text-[9px] uppercase tracking-widest text-slate-500">Lucro Líquido Real</span>
+                   <span className={`font-mono font-black text-sm ${realProfitability.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                     {formatCurrency(realProfitability.netProfit)}
+                   </span>
+                 </div>
+                 <div className="flex flex-col text-right">
+                   <span className="text-[9px] uppercase tracking-widest text-slate-500">Margem Exata</span>
+                   <span className={`font-black text-sm ${realProfitability.isHealthy ? 'text-green-400' : 'text-orange-400'}`}>
+                     {realProfitability.netMargin.toFixed(1)}%
+                   </span>
+                 </div>
+               </div>
+            )}
 
             <div className="flex flex-col gap-3 pt-2">
               <label className={`flex items-center gap-3 p-4 border rounded-2xl cursor-pointer transition-all ${isOutsourced ? 'bg-orange-500/5 border-orange-500/30' : 'border-slate-800 hover:bg-slate-800/30'}`}>
@@ -402,7 +559,7 @@ export default function ProdutosPage() {
                 <thead className="bg-slate-950 text-[10px] font-black uppercase text-slate-600 border-b border-slate-800">
                   <tr>
                     <th className="p-5 text-left tracking-widest rounded-tl-[2rem]">Produto</th>
-                    <th className="p-5 text-right tracking-widest">Custo</th>
+                    <th className="p-5 text-right tracking-widest">Custo Real</th>
                     <th className="p-5 text-right tracking-widest">Venda</th>
                     <th className="p-5 text-center tracking-widest rounded-tr-[2rem]">Ações</th>
                   </tr>
@@ -414,13 +571,20 @@ export default function ProdutosPage() {
                         <td className="p-5">
                           <div className="flex items-center gap-3">
                             <p className="font-bold text-slate-200 truncate max-w-[200px]">{product.name}</p>
+                            {product.has_detailed_cost && (
+                              <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest" title="Motor Avançado Ativo">SaaS</span>
+                            )}
                             {product.show_on_website && (
                               <span className="bg-[#F6C689]/10 text-[#F6C689] border border-[#F6C689]/20 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest">No Site</span>
                             )}
                           </div>
                         </td>
-                        <td className="p-5 text-right font-mono text-slate-500 font-bold">{formatCurrency(product.cost_price)}</td>
-                        <td className="p-5 text-right font-mono text-slate-100 font-black">{formatCurrency(product.base_price)}</td>
+                        <td className="p-5 text-right font-mono text-slate-500 font-bold">
+                          {formatCurrency(product.cost_price)}
+                        </td>
+                        <td className="p-5 text-right font-mono text-slate-100 font-black">
+                          {formatCurrency(product.base_price)}
+                        </td>
                         <td className="p-5">
                           <div className="flex items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                             

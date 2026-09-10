@@ -1,6 +1,6 @@
 /**
  * src/middleware.ts
- * Proteção cirúrgica de rotas e leitura de Cookies do Supabase.
+ * Proteção de rotas administrativas e sincronização de sessão Supabase SSR.
  */
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
@@ -12,45 +12,52 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value;
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          request.cookies.set({ name, value, ...options });
-          response = NextResponse.next({
-            request: { headers: request.headers },
-          });
-          response.cookies.set({ name, value, ...options });
-        },
-        remove(name: string, options: CookieOptions) {
-          request.cookies.set({ name, value: '', ...options });
-          response = NextResponse.next({
-            request: { headers: request.headers },
-          });
-          response.cookies.set({ name, value: '', ...options });
-        },
-      },
-    }
-  );
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  const { data: { session } } = await supabase.auth.getSession();
-
-  const isPainelRoute = request.nextUrl.pathname.startsWith('/painel');
-  const isLoginRoute = request.nextUrl.pathname.startsWith('/login');
-
-  // 1. O Bouncer: Se tentar entrar no /painel sem crachá, joga pro /login
-  if (isPainelRoute && !session) {
-    return NextResponse.redirect(new URL('/login', request.url));
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return response;
   }
 
-  // 2. O Atalho: Se já estiver com o crachá e abrir a tela de /login, joga direto pro /painel
-  if (isLoginRoute && session) {
-    return NextResponse.redirect(new URL('/painel', request.url));
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({
+          request,
+        });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          response.cookies.set(name, value, options as CookieOptions)
+        );
+      },
+    },
+  });
+
+  // Validação segura do usuário/sessão no Supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+  const isProtectedAdminRoute =
+    pathname.startsWith('/painel') || pathname.startsWith('/atacado/admin');
+  const isLoginRoute = pathname.startsWith('/login');
+
+  // 1. Redireciona usuários não autenticados tentando acessar áreas administrativas
+  if (isProtectedAdminRoute && !user) {
+    const redirectUrl = new URL('/login', request.url);
+    redirectUrl.searchParams.set('redirectTo', pathname);
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // 2. Redireciona usuários já autenticados ao acessar a tela de login
+  if (isLoginRoute && user) {
+    const redirectTo = request.nextUrl.searchParams.get('redirectTo');
+    const destination = redirectTo && redirectTo.startsWith('/') ? redirectTo : '/painel';
+    return NextResponse.redirect(new URL(destination, request.url));
   }
 
   return response;

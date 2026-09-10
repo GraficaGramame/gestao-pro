@@ -1,7 +1,7 @@
 /**
  * src/app/vendas/page.tsx
  * PDV Multi-tenant - Gráfica Gramame
- * Atualização: Interceptador de Leads + Desconto Progressivo Dinâmico nos Cards do PDV
+ * Atualização: Motor de Precificação Integrado (Fase 5 - Snapshots Imutáveis)
  */
 'use client';
 
@@ -11,9 +11,16 @@ import { Product, OrderItem, Customer } from '@/types';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/components/auth/auth-provider';
 
-// Tipagem estendida para suportar o wizard_config do banco de dados
+// Integração com o Motor de Precificação
+import { 
+  PricingConfig, 
+  calculateDirectCost, 
+  calculateRealProfitability 
+} from '@/lib/calculations/advancedPricing';
+
+// Tipagem estendida para suportar o wizard_config e os componentes do SaaS
 interface ProductListItemProps {
-  product: Product & { wizard_config?: any };
+  product: Product & { wizard_config?: any; product_cost_components?: any[]; has_detailed_cost?: boolean };
   onAdd: (product: any, qty: number, width?: number, height?: number, customUnitPrice?: number) => void;
 }
 
@@ -25,9 +32,7 @@ function ProductListItem({ product, onAdd }: ProductListItemProps) {
   const isAreaProduct = product.calculation_type === 'AREA';
   const parsedQty = parseFloat(qty.replace(',', '.')) || 1;
 
-  // ==========================================
-  // LÓGICA DE DESCONTO PROGRESSIVO NO PDV
-  // ==========================================
+  // Lógica de Desconto Progressivo no PDV
   let currentUnitPrice = product.base_price;
   let tierDiscount = 0;
   let hasDiscount = false;
@@ -78,8 +83,13 @@ function ProductListItem({ product, onAdd }: ProductListItemProps) {
       )}
 
       <div className={`flex-1 ${hasDiscount ? 'pt-3' : 'pt-0'} sm:pt-0`}>
-        <h3 className="font-bold text-sm text-slate-200">{product.name}</h3>
-        <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest">
+        <div className="flex items-center gap-2">
+          <h3 className="font-bold text-sm text-slate-200">{product.name}</h3>
+          {product.has_detailed_cost && (
+            <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-1.5 py-[1px] rounded text-[8px] font-black uppercase tracking-widest" title="Motor Avançado Ativo">SaaS</span>
+          )}
+        </div>
+        <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest mt-1 block">
           {isAreaProduct ? 'Cálculo: M²' : `Unid: ${product.unit || 'un'}`}
         </span>
       </div>
@@ -141,8 +151,10 @@ function VendasContent() {
   const editId = searchParams.get('editId');
 
   const [cart, setCart] = useState<OrderItem[]>([]);
-  const [products, setProducts] = useState<any[]>([]); // Any para absorver o wizard_config
+  const [products, setProducts] = useState<any[]>([]); 
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [pricingConfig, setPricingConfig] = useState<PricingConfig | null>(null);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('Todos');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -153,15 +165,17 @@ function VendasContent() {
   const [savingOrder, setSavingOrder] = useState(false);
 
   // ========================================================
-  // INICIALIZAÇÃO E INTERCEPTAÇÃO DE LEADS DO SITE
+  // INICIALIZAÇÃO OTIMIZADA PARA O MOTOR DE PRECIFICAÇÃO
   // ========================================================
   useEffect(() => {
     if (!tenantId) return;
 
     const loadInitialData = async () => {
-      const [prodRes, custRes] = await Promise.all([
-        (supabase as any).from('products').select('*').eq('tenant_id', tenantId).order('name'),
-        (supabase as any).from('customers').select('*').eq('tenant_id', tenantId).order('name')
+      // Fazemos o Join para já trazer a tabela de componentes de custo sem fazer selects extras
+      const [prodRes, custRes, configRes] = await Promise.all([
+        (supabase as any).from('products').select('*, product_cost_components(*)').eq('tenant_id', tenantId).order('name'),
+        (supabase as any).from('customers').select('*').eq('tenant_id', tenantId).order('name'),
+        (supabase as any).from('tenant_pricing_configs').select('*').eq('tenant_id', tenantId).single()
       ]);
 
       const loadedProducts = prodRes.data ? prodRes.data.map((p: any) => ({ ...p, unit: p.unit || 'un' })) : [];
@@ -170,6 +184,17 @@ function VendasContent() {
       setProducts(loadedProducts);
       setCustomers(loadedCustomers);
 
+      if (configRes.data) {
+        setPricingConfig({
+          target_margin: configRes.data.target_margin,
+          tax_percentage: configRes.data.tax_percentage,
+          payment_fee_percentage: configRes.data.payment_fee_percentage,
+          fixed_cost_apportionment_method: configRes.data.fixed_cost_apportionment_method,
+          fixed_cost_rate: 0
+        });
+      }
+
+      // Rascunho de Leads (Orçamento do Site)
       const draftStr = sessionStorage.getItem('draftOrderFromLead');
       const isFromLead = searchParams.get('fromLead') === 'true';
 
@@ -204,9 +229,23 @@ function VendasContent() {
 
           const draftCart = draft.items.map((item: any) => {
             const matchingProd = loadedProducts.find((p: any) => p.name.toLowerCase() === item.description.toLowerCase());
-            
             const adicText = item.selections ? Object.values(item.selections).join(' • ') : '';
             const finalDesc = adicText ? `${item.description} (${adicText})` : item.description;
+
+            // Snapshot para Leads
+            let costTotal = 0;
+            let costSnapshot: any = null;
+            let netMargin: number | undefined = undefined;
+
+            if (matchingProd?.has_detailed_cost && configRes.data && matchingProd.product_cost_components) {
+               const unitDirectCost = calculateDirectCost(matchingProd.product_cost_components);
+               costTotal = Number((unitDirectCost * Number(item.quantity)).toFixed(2));
+               const profitability = calculateRealProfitability(Number(item.unit_price), unitDirectCost, 0, configRes.data);
+               costSnapshot = { components: matchingProd.product_cost_components, configUsed: configRes.data, unitProfitability: profitability, saleQuantity: Number(item.quantity) };
+               netMargin = profitability.netMargin;
+            } else if (matchingProd) {
+               costTotal = matchingProd.cost_price * Number(item.quantity);
+            }
 
             return {
               id: Math.random().toString(),
@@ -217,7 +256,9 @@ function VendasContent() {
               height: null,
               unit_price: Number(item.unit_price),
               total_price: Number(item.total_price),
-              cost_total: matchingProd ? matchingProd.cost_price * Number(item.quantity) : 0
+              cost_total: costTotal,
+              cost_snapshot: costSnapshot,
+              net_margin: netMargin
             };
           });
 
@@ -232,9 +273,6 @@ function VendasContent() {
     loadInitialData();
   }, [tenantId, searchParams]);
 
-  // ========================================================
-  // EDIÇÃO DE PEDIDO (PADRÃO)
-  // ========================================================
   useEffect(() => {
     if (!editId || !tenantId) return;
     
@@ -262,6 +300,8 @@ function VendasContent() {
           unit_price: Number(i.unit_price),
           total_price: Number(i.total_price),
           cost_total: Number(i.cost_total),
+          cost_snapshot: i.cost_snapshot,
+          net_margin: i.net_margin
         }));
         setCart(loadedCart);
       }
@@ -270,9 +310,6 @@ function VendasContent() {
     fetchOrderForEdit();
   }, [editId, tenantId]);
 
-  // ========================================================
-  // APLICAÇÃO DE CUPONS AUTOMÁTICOS
-  // ========================================================
   useEffect(() => {
     if (!selectedCustomerId || !tenantId || editId) return;
     
@@ -309,7 +346,7 @@ function VendasContent() {
   }
 
   // ========================================================
-  // FUNÇÕES DO CARRINHO E CHECKOUT
+  // CARRINHO E CRIAÇÃO DO SNAPSHOT FINANCEIRO
   // ========================================================
   const addToCart = (product: any, providedQty: number, width?: number, height?: number, customUnitPrice?: number) => {
     let finalQuantity = providedQty;
@@ -322,6 +359,40 @@ function VendasContent() {
     }
 
     const unitPriceToUse = customUnitPrice ?? product.base_price;
+    const totalPrice = Number((unitPriceToUse * finalQuantity).toFixed(2));
+
+    // Determina o Custo Histórico (Snapshot Imutável)
+    let costTotal = 0;
+    let costSnapshot: any = null;
+    let netMargin: number | undefined = undefined;
+
+    if (product.has_detailed_cost && pricingConfig && product.product_cost_components) {
+      // 1. Calcula o custo de produção de uma unidade atual
+      const unitDirectCost = calculateDirectCost(product.product_cost_components);
+      
+      // 2. Transforma em Custo Total do Item (Custo Un. x Quantidade)
+      costTotal = Number((unitDirectCost * finalQuantity).toFixed(2));
+      
+      // 3. Processa a Rentabilidade Exata desta Venda
+      const profitability = calculateRealProfitability(
+        unitPriceToUse, 
+        unitDirectCost, 
+        0, // Em Fases futuras podemos plugar o rateio dinâmico
+        pricingConfig
+      );
+
+      costSnapshot = {
+        components: product.product_cost_components,
+        configUsed: pricingConfig,
+        unitProfitability: profitability,
+        saleQuantity: finalQuantity
+      };
+      
+      netMargin = profitability.netMargin;
+    } else {
+      // Produto Legado: Preserva a matemática original
+      costTotal = Number((product.cost_price * finalQuantity).toFixed(2));
+    }
 
     const newItem: OrderItem = {
       id: Math.random().toString(),
@@ -331,8 +402,10 @@ function VendasContent() {
       width: width ?? null,
       height: height ?? null,
       unit_price: unitPriceToUse,
-      total_price: Number((unitPriceToUse * finalQuantity).toFixed(2)),
-      cost_total: Number((product.cost_price * finalQuantity).toFixed(2)),
+      total_price: totalPrice,
+      cost_total: costTotal,
+      cost_snapshot: costSnapshot,
+      net_margin: netMargin
     };
 
     setCart([...cart, newItem]);
@@ -367,6 +440,8 @@ function VendasContent() {
         }).eq('id', editId).eq('tenant_id', tenantId);
 
         await (supabase as any).from('order_items').delete().eq('order_id', editId);
+        
+        // Desestruturamos o ID temp, e todos os novos campos como o jsonb vão junto via "rest"
         const itemsPayload = cart.map(({ id, ...rest }: any) => ({ ...rest, order_id: editId }));
         await (supabase as any).from('order_items').insert(itemsPayload);
 
@@ -550,6 +625,11 @@ function VendasContent() {
                   className="w-16 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-right text-red-400 font-mono font-black outline-none focus:border-red-500 transition-colors"
                 />
               </div>
+            </div>
+
+            {/* Aviso UI - A pedido do Lojista */}
+            <div className="text-[8px] text-slate-500 font-bold uppercase tracking-widest text-right">
+              Condicional Pix: Aplicar manualmente caso seja feito via Pix.
             </div>
 
             <div className="flex justify-between items-center pt-3 mt-3 border-t border-slate-800">
